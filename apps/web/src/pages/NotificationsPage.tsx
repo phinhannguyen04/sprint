@@ -14,7 +14,7 @@ import { SnoozeMenu } from '../components/notifications/SnoozeMenu';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { WorkspaceApiResponse, NotificationApiResponse } from '../api/types';
 
-type InboxTab = 'all' | 'mentions' | 'archived' | 'chat';
+type InboxTab = 'all' | 'archived' | 'chat';
 
 function formatTimeAgo(iso: string): string {
   const d = new Date(iso);
@@ -44,7 +44,6 @@ function rowLabels(n: NotificationApiResponse, t: (key: string, def: string) => 
 
 const TABS: { id: InboxTab; label: string }[] = [
   { id: 'all', label: 'All' },
-  { id: 'mentions', label: 'Mentions' },
   { id: 'archived', label: 'Archived' },
   { id: 'chat', label: 'Chat' },
 ];
@@ -94,7 +93,6 @@ export function NotificationsPage() {
       if (e.type !== 'notification') return;
       notificationService
         .list(workspaceSlug, {
-          mentionsOnly: inboxTab === 'mentions',
           archived: inboxTab === 'archived' ? 'archived' : 'inbox',
         })
         .then((list) => {
@@ -119,7 +117,6 @@ export function NotificationsPage() {
     Promise.all([
       workspaceService.getBySlug(workspaceSlug),
       notificationService.list(workspaceSlug, {
-        mentionsOnly: inboxTab === 'mentions',
         archived: inboxTab === 'archived' ? 'archived' : 'inbox',
       }),
     ])
@@ -178,7 +175,6 @@ export function NotificationsPage() {
     if (!workspaceSlug) return;
     await notificationService.markAllRead(workspaceSlug);
     const refreshed = await notificationService.list(workspaceSlug, {
-      mentionsOnly: inboxTab === 'mentions',
       archived: inboxTab === 'archived' ? 'archived' : 'inbox',
     });
     setNotifications(refreshed ?? []);
@@ -284,20 +280,15 @@ export function NotificationsPage() {
   const listWidth = 'clamp(340px, 35%, 460px)';
 
   const emptyMessage =
-    inboxTab === 'mentions'
+    inboxTab === 'archived'
       ? t(
-          'notifications.empty.mentions',
-          'No mentions yet. When someone @-mentions you in an issue or comment, it shows here.',
+          'notifications.empty.archived',
+          'No archived notifications. Archive a row from the inbox to declutter without losing it.',
         )
-      : inboxTab === 'archived'
-        ? t(
-            'notifications.empty.archived',
-            'No archived notifications. Archive a row from the inbox to declutter without losing it.',
-          )
-        : t(
-            'notifications.empty.all',
-            'Inbox zero. Notifications about issues you’re involved with will land here.',
-          );
+      : t(
+          'notifications.empty.all',
+          'Inbox zero. Notifications about issues you’re involved with will land here.',
+        );
 
   return (
     <div className="flex h-full min-h-0 w-full">
