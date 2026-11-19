@@ -644,20 +644,7 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 		authGroup.POST("/set-password/", middleware.RequireAuth(authSvc, cfg.Log), authHandler.SetPassword)
 	}
 
-	// OAuth routes (no auth required); provider resolved from instance settings at request time.
-	oauthHandler := &handler.OAuthHandler{
-		Settings:     instanceSettingStore,
-		Workspaces:   workspaceStore,
-		Invites:      workspaceInviteStore,
-		Auth:         authSvc,
-		AppBaseURL:   appBaseURL,
-		APIPublicURL: cfg.APIPublicURL,
-		Log:          cfg.Log,
-	}
-	// OAuth sign-in (Google/GitHub/GitLab) is disabled: the /auth/:provider/
-	// routes are intentionally not registered. oauthHandler stays wired for the
-	// Slack / GitHub App flows below that share its types.
-	_ = oauthHandler
+	// Google/GitHub/GitLab OAuth sign-in was removed: accounts are admin-provisioned.
 
 	// GitHub App install flow (separate from OAuth user sign-in). Both
 	// require the user to be signed in so we can attach the installation to

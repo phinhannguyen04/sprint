@@ -99,3 +99,15 @@ type Provider interface {
 	Exchange(ctx context.Context, code string) (*TokenData, error)
 	GetUserInfo(ctx context.Context, token *TokenData) (*UserInfo, error)
 }
+
+// strVal reads a JSON field as a string, formatting non-string values.
+func strVal(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
+}

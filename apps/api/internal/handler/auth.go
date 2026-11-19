@@ -648,11 +648,34 @@ func (h *AuthHandler) InstanceAuthConfig(c *gin.Context) {
 		"is_gitlab_enabled":              false,
 		"is_workspace_creation_disabled": isWorkspaceCreationRestricted(ctx, h.Settings),
 	}
+	// Public URLs shown in Instance admin when configuring the GitHub App / Slack integrations.
+	out["oauth_redirect_base"] = oauthCallbackBase(c, h.APIPublicURL)
+	if js := h.oauthJSOriginForProviders(); js != "" {
+		out["oauth_js_origin"] = js
+	}
 	c.JSON(http.StatusOK, out)
 }
 
-// oauthJSOriginForProviders is the SPA origin admins paste into Google "Authorized JavaScript origins",
-// GitHub "Homepage URL", etc. Prefer FRONTEND_PUBLIC_URL so CORS_ORIGIN can differ from the public app URL when needed.
+// requestCallbackBase derives the public base URL from the incoming request.
+// Used as a fallback when API_PUBLIC_URL is not configured.
+func requestCallbackBase(c *gin.Context) string {
+	scheme := "http"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return scheme + "://" + c.Request.Host
+}
+
+// oauthCallbackBase is the public API base URL (configured value, else derived from the request).
+func oauthCallbackBase(c *gin.Context, configuredBase string) string {
+	if b := strings.TrimSuffix(strings.TrimSpace(configuredBase), "/"); b != "" {
+		return b
+	}
+	return requestCallbackBase(c)
+}
+
+// oauthJSOriginForProviders is the SPA origin admins paste into the integration's
+// "Homepage URL" etc. Prefer FRONTEND_PUBLIC_URL so CORS_ORIGIN can differ from the public app URL when needed.
 func (h *AuthHandler) oauthJSOriginForProviders() string {
 	if s := strings.TrimSpace(h.FrontendPublicURL); s != "" {
 		return strings.TrimSuffix(s, "/")

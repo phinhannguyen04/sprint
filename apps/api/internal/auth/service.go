@@ -7,7 +7,6 @@ import (
 	"errors"
 	"math/big"
 	"strings"
-	"time"
 
 	"github.com/Devlaner/devlane/api/internal/model"
 	"github.com/Devlaner/devlane/api/internal/store"
@@ -458,72 +457,6 @@ func (s *Service) SetPassword(ctx context.Context, userID uuid.UUID, newPassword
 		_ = s.sessionStore.DeleteByUserIDExcept(ctx, userID, keepSessionKey)
 	}
 	return nil
-}
-
-// OAuthLogin finds or creates a user from OAuth provider data and creates a session.
-// If the email already exists, it links the account; if not, it creates a new user.
-// isNewUser is true when a brand-new user row was created (first-time sign-up).
-func (s *Service) OAuthLogin(ctx context.Context, provider, providerAccountID, email, firstName, lastName, avatar, accessToken, refreshToken, idToken string) (sessionKey string, user *model.User, isNewUser bool, err error) {
-	email = strings.TrimSpace(strings.ToLower(email))
-	if email == "" {
-		return "", nil, false, errors.New("oauth: email is required")
-	}
-
-	u, err := s.userStore.GetByEmail(ctx, email)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return "", nil, false, err
-	}
-
-	if u != nil && !u.IsActive {
-		return "", nil, false, errors.New("account is deactivated")
-	}
-
-	newUser := u == nil
-	if newUser {
-		username := email
-		if at := strings.Index(email, "@"); at > 0 {
-			username = strings.ReplaceAll(email[:at], ".", "_")
-		}
-		if existing, _ := s.userStore.GetByUsername(ctx, username); existing != nil {
-			username = email
-		}
-		dummyPwd := make([]byte, 32)
-		_, _ = rand.Read(dummyPwd)
-		hash, _ := bcrypt.GenerateFromPassword(dummyPwd, bcryptCost)
-		u = &model.User{
-			Username:          username,
-			Email:             &email,
-			Password:          string(hash),
-			FirstName:         firstName,
-			LastName:          lastName,
-			DisplayName:       strings.TrimSpace(firstName + " " + lastName),
-			Avatar:            avatar,
-			IsActive:          true,
-			IsPasswordAutoset: true,
-		}
-		if err := s.userStore.Create(ctx, u); err != nil {
-			return "", nil, false, err
-		}
-	}
-
-	if s.accountStore != nil {
-		now := time.Now().UTC()
-		_ = s.accountStore.Upsert(ctx, &model.Account{
-			UserID:            u.ID,
-			Provider:          provider,
-			ProviderAccountID: providerAccountID,
-			AccessToken:       accessToken,
-			RefreshToken:      refreshToken,
-			IDToken:           idToken,
-			LastConnectedAt:   &now,
-		})
-	}
-
-	sessionKey, err = s.createSession(ctx, u.ID)
-	if err != nil {
-		return "", nil, false, err
-	}
-	return sessionKey, u, newUser, nil
 }
 
 func (s *Service) createSession(ctx context.Context, userID uuid.UUID) (string, error) {
