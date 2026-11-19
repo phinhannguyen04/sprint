@@ -14,6 +14,7 @@ import { UploadImageModal } from '../components/UploadImageModal';
 import { ProjectIconModal, ProjectIconDisplay } from '../components/ProjectIconModal';
 import { getImageUrl } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { getApiErrorMessage } from '../api/client';
 import { useTheme, type ThemePreference } from '../contexts/ThemeContext';
 import { workspaceService } from '../services/workspaceService';
 import { ProjectNetworkSelect } from '../components/ProjectNetworkSelect';
@@ -571,7 +572,7 @@ export function SettingsPage() {
     }
     setInviting(true);
     try {
-      const roleNum = (r: { role: 'member' | 'admin' }) => (r.role === 'admin' ? 20 : 10);
+      const roleNum = (r: { role: 'member' | 'admin' }) => (r.role === 'admin' ? 15 : 10);
       if (inviteTarget === 'project' && selectedProjectId) {
         await Promise.all(
           rows.map((r) =>
@@ -792,7 +793,31 @@ export function SettingsPage() {
 
   const workspaceDisplayName = workspaceName || workspace.name;
   const workspaceUrl = `devlane.example.com/${workspace.slug}`;
-  const roleLabel = (role: number) => (role >= 20 ? 'admin' : 'member');
+  // Backend roles: Guest 5, Member 10, Admin 15, Owner 20. Owners show as Admin here.
+  const roleLabel = (role: number) => (role >= 15 ? 'admin' : 'member');
+  const canManageMembers =
+    (workspaceMembers.find((m) => m.member_id === user?.id)?.role ?? 0) >= 15;
+  const removeWorkspaceMember = async (m: WorkspaceMemberApiResponse) => {
+    if (!workspaceSlug) return;
+    const who = m.member_display_name?.trim() || m.member_email || 'this member';
+    if (
+      !window.confirm(
+        t(
+          'settings.members.removeConfirm',
+          'Remove {{name}} from this workspace? They will lose access to its projects and work items.',
+          { name: who },
+        ),
+      )
+    )
+      return;
+    try {
+      await workspaceService.deleteMember(workspaceSlug, m.id);
+      const list = await workspaceService.listMembers(workspaceSlug);
+      setWorkspaceMembers(list ?? []);
+    } catch (err) {
+      window.alert(getApiErrorMessage(err));
+    }
+  };
   const memberLabel = (memberId: string | null | undefined) => {
     if (!memberId) return '—';
     const m = workspaceMembers.find((wm) => wm.member_id === memberId);
@@ -2453,7 +2478,7 @@ export function SettingsPage() {
                                 value={roleLabel(m.role)}
                                 onChange={async (e) => {
                                   const v = e.target.value as 'member' | 'admin';
-                                  const role = v === 'admin' ? 20 : 10;
+                                  const role = v === 'admin' ? 15 : 10;
                                   if (!workspaceSlug || !selectedProjectId || role === m.role)
                                     return;
                                   try {
@@ -3346,6 +3371,7 @@ export function SettingsPage() {
                         <th className="py-3 font-medium text-(--txt-secondary)">
                           {t('settings.members.joiningDate', 'Joining date')}
                         </th>
+                        {canManageMembers && <th className="py-3 pl-4" />}
                       </tr>
                     </thead>
                     <tbody>
@@ -3371,7 +3397,7 @@ export function SettingsPage() {
                                 value={roleLabel(m.role)}
                                 onChange={async (e) => {
                                   const v = e.target.value as 'member' | 'admin';
-                                  const role = v === 'admin' ? 20 : 10;
+                                  const role = v === 'admin' ? 15 : 10;
                                   if (!workspaceSlug || role === m.role) return;
                                   try {
                                     await workspaceService.updateMember(workspaceSlug, m.id, role);
@@ -3405,6 +3431,19 @@ export function SettingsPage() {
                                 })
                               : '—'}
                           </td>
+                          {canManageMembers && (
+                            <td className="py-3 pl-4 text-right">
+                              {m.member_id !== workspace?.owner_id && m.member_id !== user?.id ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void removeWorkspaceMember(m)}
+                                  className="rounded px-2 py-1 text-xs font-medium text-(--txt-danger-primary) hover:bg-(--bg-danger-subtle)"
+                                >
+                                  {t('settings.members.remove', 'Remove')}
+                                </button>
+                              ) : null}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
