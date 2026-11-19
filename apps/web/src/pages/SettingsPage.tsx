@@ -3365,9 +3365,6 @@ export function SettingsPage() {
                         <th className="py-3 pr-4 font-medium text-(--txt-secondary)">
                           {t('settings.members.accountType', 'Account type')}
                         </th>
-                        <th className="py-3 pr-4 font-medium text-(--txt-secondary)">
-                          {t('settings.members.authentication', 'Authentication')}
-                        </th>
                         <th className="py-3 font-medium text-(--txt-secondary)">
                           {t('settings.members.joiningDate', 'Joining date')}
                         </th>
@@ -3418,9 +3415,6 @@ export function SettingsPage() {
                                 <IconChevronDown />
                               </span>
                             </div>
-                          </td>
-                          <td className="py-3 pr-4 text-(--txt-secondary)">
-                            {t('settings.members.authEmail', 'Email')}
                           </td>
                           <td className="py-3 text-(--txt-secondary)">
                             {m.created_at
