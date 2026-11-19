@@ -101,6 +101,18 @@ export function NotificationContent({ notification }: Props) {
         </p>
       );
 
+    case 'poker':
+      return (
+        <p className="text-sm text-(--txt-primary)">
+          <Trans
+            i18nKey="notifications.poker"
+            defaults="<b>{{actor}}</b> started planning poker on <ref>{{issueRef}}</ref> — {{name}}. Open the work item and cast your estimate."
+            values={{ actor: actor.display_name, issueRef, name: issue.name }}
+            components={{ b: <strong />, ref: <span className="font-medium" /> }}
+          />
+        </p>
+      );
+
     case 'subscribed':
       return (
         <p className="text-sm text-(--txt-primary)">

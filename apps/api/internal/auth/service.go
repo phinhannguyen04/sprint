@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"math/big"
 	"strings"
 	"time"
 
@@ -532,4 +533,112 @@ func (s *Service) createSession(ctx context.Context, userID uuid.UUID) (string, 
 	}
 	sessionKey := hex.EncodeToString(key)
 	return sessionKey, s.sessionStore.Create(ctx, sessionKey, userID)
+}
+
+// GeneratePassword returns a random password that satisfies
+// ValidatePasswordStrength (upper, lower, digit, special; 16 chars).
+func GeneratePassword() (string, error) {
+	const (
+		upper   = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+		lower   = "abcdefghijkmnopqrstuvwxyz"
+		digits  = "23456789"
+		special = "!@#$%^&*-_=+"
+		all     = upper + lower + digits + special
+	)
+	pick := func(set string) (byte, error) {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(set))))
+		if err != nil {
+			return 0, err
+		}
+		return set[n.Int64()], nil
+	}
+	out := make([]byte, 0, 16)
+	for _, set := range []string{upper, lower, digits, special} {
+		c, err := pick(set)
+		if err != nil {
+			return "", err
+		}
+		out = append(out, c)
+	}
+	for len(out) < 16 {
+		c, err := pick(all)
+		if err != nil {
+			return "", err
+		}
+		out = append(out, c)
+	}
+	// Shuffle so the guaranteed classes aren't always in front.
+	for i := len(out) - 1; i > 0; i-- {
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", err
+		}
+		j := n.Int64()
+		out[i], out[j] = out[j], out[i]
+	}
+	return string(out), nil
+}
+
+// AdminCreateUser creates an active user with the given password without
+// opening a session (used when an instance admin provisions an account).
+func (s *Service) AdminCreateUser(ctx context.Context, email, firstName, lastName, password string) (*model.User, error) {
+	if err := ValidatePasswordStrength(password); err != nil {
+		return nil, err
+	}
+	email = strings.TrimSpace(strings.ToLower(email))
+	if existing, _ := s.userStore.GetByEmail(ctx, email); existing != nil {
+		return nil, ErrEmailTaken
+	}
+	username := email
+	if at := strings.Index(email, "@"); at > 0 {
+		username = strings.ReplaceAll(email[:at], ".", "_")
+	}
+	if existing, _ := s.userStore.GetByUsername(ctx, username); existing != nil {
+		username = email
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	if err != nil {
+		return nil, err
+	}
+	display := strings.TrimSpace(firstName + " " + lastName)
+	if display == "" {
+		display = username
+	}
+	u := &model.User{
+		Username:    username,
+		Email:       &email,
+		Password:    string(hash),
+		FirstName:   firstName,
+		LastName:    lastName,
+		DisplayName: display,
+		IsActive:    true,
+	}
+	if err := s.userStore.Create(ctx, u); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// AdminResetPassword sets a new password for the user and revokes all of their sessions.
+func (s *Service) AdminResetPassword(ctx context.Context, userID uuid.UUID, newPassword string) error {
+	if err := ValidatePasswordStrength(newPassword); err != nil {
+		return err
+	}
+	u, err := s.userStore.GetByID(ctx, userID)
+	if err != nil || u == nil {
+		return ErrInvalidCredentials
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
+	if err != nil {
+		return err
+	}
+	u.Password = string(hash)
+	u.IsPasswordAutoset = false
+	if err := s.userStore.Update(ctx, u); err != nil {
+		return err
+	}
+	if s.sessionStore != nil {
+		_ = s.sessionStore.DeleteByUserID(ctx, userID)
+	}
+	return nil
 }

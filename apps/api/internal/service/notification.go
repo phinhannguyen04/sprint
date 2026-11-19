@@ -11,6 +11,7 @@ import (
 	"github.com/Devlaner/devlane/api/internal/mail"
 	"github.com/Devlaner/devlane/api/internal/model"
 	"github.com/Devlaner/devlane/api/internal/queue"
+	"github.com/Devlaner/devlane/api/internal/realtime"
 	"github.com/Devlaner/devlane/api/internal/slack"
 	"github.com/Devlaner/devlane/api/internal/store"
 	"github.com/google/uuid"
@@ -39,6 +40,7 @@ type NotificationService struct {
 	slackStore  *store.SlackChannelLinkStore     // optional
 	wintegStore *store.WorkspaceIntegrationStore // optional
 	appURL      string                           // optional — base URL for issue links in notification emails
+	hub         *realtime.Hub                    // optional — pushes "notification" events to open SSE streams
 }
 
 func NewNotificationService(
@@ -99,6 +101,9 @@ func (s *NotificationService) SetSlackStores(sl *store.SlackChannelLinkStore, wi
 func (s *NotificationService) SetAppBaseURL(url string) {
 	s.appURL = url
 }
+
+// SetHub wires realtime push for new notifications. Optional.
+func (s *NotificationService) SetHub(h *realtime.Hub) { s.hub = h }
 
 func (s *NotificationService) logger() *slog.Logger {
 	if s.log != nil {
@@ -367,6 +372,10 @@ func (s *NotificationService) emit(ctx context.Context, receivers []uuid.UUID, p
 	if len(rows) > 0 {
 		if err := s.ns.CreateMany(ctx, rows); err != nil {
 			s.logger().Warn("notification fan-out failed", "err", err, "issue_id", params.issue.ID, "receivers", len(rows))
+		} else {
+			for _, r := range rows {
+				s.hub.Publish(r.ReceiverID, realtime.Event{Type: "notification", WorkspaceID: r.WorkspaceID})
+			}
 		}
 	}
 
@@ -678,6 +687,18 @@ func (s *NotificationService) IssueStateChanged(ctx context.Context, issue *mode
 	})
 }
 
+// IssuePokerStarted asks project members to estimate the issue (planning poker).
+func (s *NotificationService) IssuePokerStarted(ctx context.Context, issue *model.Issue, actorID uuid.UUID, receivers []uuid.UUID) {
+	if issue == nil || len(receivers) == 0 {
+		return
+	}
+	s.emit(ctx, receivers, emitParams{
+		issue:   issue,
+		actorID: actorID,
+		sender:  model.NotificationSenderPoker,
+	})
+}
+
 // IssueFieldChanged is a catch-all for non-state field updates (priority, due dates, parent, name).
 func (s *NotificationService) IssueFieldChanged(ctx context.Context, issue *model.Issue, actorID uuid.UUID, field, before, after string) {
 	if issue == nil || field == "" {
@@ -715,6 +736,8 @@ func buildTitle(sender, actor, issueRef, field, before, after string) string {
 		return fmt.Sprintf("%s mentioned you in %s", actor, issueRef)
 	case model.NotificationSenderCommented:
 		return fmt.Sprintf("%s commented on %s", actor, issueRef)
+	case model.NotificationSenderPoker:
+		return fmt.Sprintf("%s started planning poker on %s — cast your estimate", actor, issueRef)
 	case model.NotificationSenderStateChanged:
 		if before != "" && after != "" {
 			return fmt.Sprintf("%s moved %s from %s to %s", actor, issueRef, before, after)

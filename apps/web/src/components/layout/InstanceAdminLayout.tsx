@@ -225,6 +225,12 @@ const SECTIONS = [
     Icon: IconUsers,
   },
   {
+    path: 'users',
+    label: 'Users',
+    desc: 'Create accounts and reset passwords.',
+    Icon: IconUsers,
+  },
+  {
     path: 'workspace',
     label: 'Workspaces',
     desc: 'Manage all workspaces on this instance.',

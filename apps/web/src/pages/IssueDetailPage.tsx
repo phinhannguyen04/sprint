@@ -28,6 +28,7 @@ import { IssueRelationsPanel } from '../components/work-item/IssueRelationsPanel
 import { IssueAttachmentsPanel } from '../components/work-item/IssueAttachmentsPanel';
 import { MoveWorkItemModal } from '../components/work-item/MoveWorkItemModal';
 import { SubscribeButton } from '../components/notifications/SubscribeButton';
+import { PlanningPokerButton } from '../components/work-item/PlanningPoker';
 import {
   PriorityIcon,
   StatePill,
@@ -839,6 +840,19 @@ export function IssueDetailPage() {
         </div>
 
         <div className="space-y-4">
+          {workspaceSlug && !issue.is_epic && (
+            <PlanningPokerButton
+              workspaceSlug={workspaceSlug}
+              projectId={project.id}
+              issueId={issue.id}
+              onEstimateSet={() =>
+                issueService
+                  .get(workspaceSlug, project.id, issue.id)
+                  .then((fresh) => setIssue(fresh))
+                  .catch(() => {})
+              }
+            />
+          )}
           {workspaceSlug && (
             <SubscribeButton
               workspaceSlug={workspaceSlug}

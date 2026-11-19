@@ -12,9 +12,16 @@ import type { Priority } from '../../../types';
 export const ISSUE_LAYOUTS = ['list', 'board', 'spreadsheet', 'calendar', 'gantt'] as const;
 export type IssueLayout = (typeof ISSUE_LAYOUTS)[number];
 
+/**
+ * Layout used when the URL has no `?layout=` param. The default layout is
+ * represented by the *absence* of the param (so URLs stay clean); every other
+ * layout, including `list`, is written explicitly.
+ */
+export const DEFAULT_ISSUE_LAYOUT: IssueLayout = 'board';
+
 export function parseIssueLayout(
   raw: string | null | undefined,
-  fallback: IssueLayout = 'list',
+  fallback: IssueLayout = DEFAULT_ISSUE_LAYOUT,
 ): IssueLayout {
   if (!raw) return fallback;
   return (ISSUE_LAYOUTS as readonly string[]).includes(raw) ? (raw as IssueLayout) : fallback;

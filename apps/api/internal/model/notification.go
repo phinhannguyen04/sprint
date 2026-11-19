@@ -55,6 +55,7 @@ const (
 	NotificationSenderStateChanged = "state_changed"
 	NotificationSenderSubscribed   = "subscribed"
 	NotificationSenderCreated      = "created"
+	NotificationSenderPoker        = "poker"
 
 	NotificationEntityIssue = "issue"
 )

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { DEFAULT_ISSUE_LAYOUT } from '../../work-item/layouts/IssueLayoutTypes';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Tooltip } from '../../ui';
@@ -391,11 +392,11 @@ export function ProjectSectionHeader({
             ];
             const activeLayout = (() => {
               const v = searchParams.get('layout') ?? '';
-              return layouts.some((l) => l.key === v) ? v : 'list';
+              return layouts.some((l) => l.key === v) ? v : DEFAULT_ISSUE_LAYOUT;
             })();
             const setLayout = (k: string) => {
               const next = new URLSearchParams(searchParams);
-              if (k === 'list') next.delete('layout');
+              if (k === DEFAULT_ISSUE_LAYOUT) next.delete('layout');
               else next.set('layout', k);
               setSearchParams(next, { replace: true });
             };

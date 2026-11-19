@@ -90,3 +90,30 @@ export const instanceAdminService = {
     await apiClient.delete(`/api/instance/admins/${encodeURIComponent(id)}/`);
   },
 };
+
+export interface AdminCreatedUser {
+  user: UserApiResponse;
+  /** Generated password — shown once, never retrievable again. */
+  password: string;
+}
+
+/** Instance-admin account provisioning (sign-up/OAuth are disabled). */
+export const instanceUserService = {
+  async createUser(payload: {
+    email: string;
+    first_name?: string;
+    last_name?: string;
+    workspace_slug?: string;
+    role?: number;
+  }): Promise<AdminCreatedUser> {
+    const { data } = await apiClient.post<AdminCreatedUser>('/api/instance/users/', payload);
+    return data;
+  },
+
+  async resetPassword(userId: string): Promise<AdminCreatedUser> {
+    const { data } = await apiClient.post<AdminCreatedUser>(
+      `/api/instance/users/${encodeURIComponent(userId)}/reset-password/`,
+    );
+    return data;
+  },
+};

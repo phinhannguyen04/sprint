@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useInboxUnread } from '../../hooks/useInboxUnread';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import { Link, NavLink, useLocation, useParams } from 'react-router-dom';
@@ -223,6 +224,9 @@ const IconViewLayers = () => (
     <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
   </svg>
 );
+
+/** Favorites (starred projects/views + folders) section of the sidebar. Hidden by default; set true to bring it back. */
+const SHOW_FAVORITES_SECTION = false;
 
 function favoritedIssueViewHref(baseUrl: string, view: IssueViewApiResponse): string {
   if (view.project_id) {
@@ -484,6 +488,7 @@ export function Sidebar() {
   const workspaceSlug = paramsSlug ?? slugFromPath;
   const workspace = workspaces.find((w) => w.slug === workspaceSlug) ?? workspaces[0] ?? null;
   const baseUrl = workspaceSlug ? `/${workspaceSlug}` : workspace ? `/${workspace.slug}` : '';
+  const inboxUnread = useInboxUnread(workspaceSlug ?? workspace?.slug);
   const favoriteProjects = projects.filter((p) => favoriteProjectIds.includes(p.id));
 
   useEffect(() => {
@@ -877,6 +882,14 @@ export function Sidebar() {
                   <IconInbox />
                 </span>
                 {t('nav.inbox', 'Inbox')}
+                {inboxUnread > 0 ? (
+                  <span
+                    aria-label={`${inboxUnread} unread`}
+                    className="ml-auto inline-flex min-w-[18px] items-center justify-center rounded-full bg-(--brand-default) px-1.5 text-[10px] font-semibold leading-4 text-white"
+                  >
+                    {inboxUnread > 99 ? '99+' : inboxUnread}
+                  </span>
+                ) : null}
               </NavLink>
               <NavLink
                 to={baseUrl && user ? `${baseUrl}/profile/${user.id}` : baseUrl || '/'}
@@ -1006,60 +1019,62 @@ export function Sidebar() {
             </div>
 
             {/* 6. Favorites section (collapsible) */}
-            <div className="flex flex-col gap-0.5 px-2 pt-3 pb-1">
-              <button
-                type="button"
-                onClick={() => setFavoritesSectionExpanded((e) => !e)}
-                className="group flex w-full items-center justify-between gap-2 rounded-(--radius-md) px-2 py-1.5 text-left text-[11px] font-medium uppercase tracking-wide text-(--txt-placeholder) outline-none hover:bg-(--bg-layer-transparent-hover) hover:text-(--txt-secondary)"
-                aria-expanded={favoritesSectionExpanded}
-              >
-                <span>{t('nav.section.favorites', 'Favorites')}</span>
-                <span className="flex size-4 shrink-0 items-center justify-center opacity-0 transition-[opacity,transform] duration-150 group-hover:opacity-100">
-                  <IconChevronRight
-                    className={cn(
-                      'text-(--txt-icon-tertiary)',
-                      favoritesSectionExpanded && 'rotate-90',
+            {SHOW_FAVORITES_SECTION && (
+              <div className="flex flex-col gap-0.5 px-2 pt-3 pb-1">
+                <button
+                  type="button"
+                  onClick={() => setFavoritesSectionExpanded((e) => !e)}
+                  className="group flex w-full items-center justify-between gap-2 rounded-(--radius-md) px-2 py-1.5 text-left text-[11px] font-medium uppercase tracking-wide text-(--txt-placeholder) outline-none hover:bg-(--bg-layer-transparent-hover) hover:text-(--txt-secondary)"
+                  aria-expanded={favoritesSectionExpanded}
+                >
+                  <span>{t('nav.section.favorites', 'Favorites')}</span>
+                  <span className="flex size-4 shrink-0 items-center justify-center opacity-0 transition-[opacity,transform] duration-150 group-hover:opacity-100">
+                    <IconChevronRight
+                      className={cn(
+                        'text-(--txt-icon-tertiary)',
+                        favoritesSectionExpanded && 'rotate-90',
+                      )}
+                    />
+                  </span>
+                </button>
+                {favoritesSectionExpanded && (
+                  <div className="flex flex-col gap-0.5 pl-1 py-1">
+                    {favoriteProjects.map((project) => (
+                      <Link
+                        key={project.id}
+                        to={`${baseUrl}/projects/${project.id}/issues`}
+                        className="flex w-full items-center gap-2 rounded-(--radius-md) px-2 py-1.5 text-[13px] font-medium text-(--txt-secondary) hover:bg-(--bg-layer-transparent-hover) hover:text-(--txt-primary)"
+                      >
+                        <div className="flex size-5 shrink-0 items-center justify-center rounded-sm bg-(--bg-layer-1) text-(--txt-tertiary)">
+                          <ProjectIconDisplay
+                            emoji={project.emoji}
+                            icon_prop={project.icon_prop}
+                            size={14}
+                            className="leading-none"
+                          />
+                        </div>
+                        <span className="truncate">{project.name}</span>
+                      </Link>
+                    ))}
+                    {favoriteIssueViews.map((view) => (
+                      <Link
+                        key={view.id}
+                        to={favoritedIssueViewHref(baseUrl, view)}
+                        className="flex w-full items-center gap-2 rounded-(--radius-md) px-2 py-1.5 text-[13px] font-medium text-(--txt-secondary) hover:bg-(--bg-layer-transparent-hover) hover:text-(--txt-primary)"
+                      >
+                        <span className="flex size-5 shrink-0 items-center justify-center text-(--txt-icon-tertiary)">
+                          <IconViewLayers />
+                        </span>
+                        <span className="truncate">{view.name}</span>
+                      </Link>
+                    ))}
+                    {workspaceSlug && (
+                      <WorkspaceFavoritesTree workspaceSlug={workspaceSlug} baseUrl={baseUrl} />
                     )}
-                  />
-                </span>
-              </button>
-              {favoritesSectionExpanded && (
-                <div className="flex flex-col gap-0.5 pl-1 py-1">
-                  {favoriteProjects.map((project) => (
-                    <Link
-                      key={project.id}
-                      to={`${baseUrl}/projects/${project.id}/issues`}
-                      className="flex w-full items-center gap-2 rounded-(--radius-md) px-2 py-1.5 text-[13px] font-medium text-(--txt-secondary) hover:bg-(--bg-layer-transparent-hover) hover:text-(--txt-primary)"
-                    >
-                      <div className="flex size-5 shrink-0 items-center justify-center rounded-sm bg-(--bg-layer-1) text-(--txt-tertiary)">
-                        <ProjectIconDisplay
-                          emoji={project.emoji}
-                          icon_prop={project.icon_prop}
-                          size={14}
-                          className="leading-none"
-                        />
-                      </div>
-                      <span className="truncate">{project.name}</span>
-                    </Link>
-                  ))}
-                  {favoriteIssueViews.map((view) => (
-                    <Link
-                      key={view.id}
-                      to={favoritedIssueViewHref(baseUrl, view)}
-                      className="flex w-full items-center gap-2 rounded-(--radius-md) px-2 py-1.5 text-[13px] font-medium text-(--txt-secondary) hover:bg-(--bg-layer-transparent-hover) hover:text-(--txt-primary)"
-                    >
-                      <span className="flex size-5 shrink-0 items-center justify-center text-(--txt-icon-tertiary)">
-                        <IconViewLayers />
-                      </span>
-                      <span className="truncate">{view.name}</span>
-                    </Link>
-                  ))}
-                  {workspaceSlug && (
-                    <WorkspaceFavoritesTree workspaceSlug={workspaceSlug} baseUrl={baseUrl} />
-                  )}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* 7. Projects section (collapsible) */}
             <div className="flex flex-col flex-1 min-h-0">

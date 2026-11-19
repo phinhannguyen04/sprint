@@ -11,6 +11,7 @@ import (
 	"github.com/Devlaner/devlane/api/internal/middleware"
 	"github.com/Devlaner/devlane/api/internal/minio"
 	"github.com/Devlaner/devlane/api/internal/queue"
+	"github.com/Devlaner/devlane/api/internal/realtime"
 	"github.com/Devlaner/devlane/api/internal/redis"
 	"github.com/Devlaner/devlane/api/internal/service"
 	"github.com/Devlaner/devlane/api/internal/store"
@@ -169,6 +170,8 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 	pageSvc.SetFavoriteStore(userFavoriteStore)
 	notificationSvc := service.NewNotificationService(notificationStore, workspaceStore, issueStore, projectStore, userStore, stateStore)
 	notificationSvc.SetLogger(cfg.Log)
+	realtimeHub := realtime.NewHub()
+	notificationSvc.SetHub(realtimeHub)
 	notificationSvc.SetSubscriberStore(issueSubscriberStore)
 	notificationSvc.SetPreferenceStore(userNotifPrefStore)
 	// Wire email notification infrastructure if queue is available
@@ -279,6 +282,14 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 	issueViewHandler := &handler.IssueViewHandler{IssueView: issueViewSvc}
 	pageHandler := &handler.PageHandler{Page: pageSvc}
 	notificationHandler := &handler.NotificationHandler{Notification: notificationSvc}
+	chatSvc := service.NewChatService(store.NewDirectMessageStore(cfg.DB), workspaceStore)
+	chatSvc.SetHub(realtimeHub)
+	chatHandler := &handler.ChatHandler{Chat: chatSvc}
+	eventsHandler := &handler.EventsHandler{Hub: realtimeHub}
+	pokerSvc := service.NewPokerService(store.NewPokerStore(cfg.DB), issueSvc, estimateSvc, projectStore, workspaceStore)
+	pokerSvc.SetNotificationService(notificationSvc)
+	pokerSvc.SetHub(realtimeHub)
+	pokerHandler := &handler.PokerHandler{Poker: pokerSvc}
 	commentHandler := &handler.CommentHandler{Comment: commentSvc}
 	workspaceLinkHandler := &handler.WorkspaceLinkHandler{Link: workspaceLinkSvc}
 	stickyHandler := &handler.StickyHandler{Sticky: stickySvc}
@@ -316,6 +327,11 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 		api.POST("/instance/settings/email/test", instanceSettingsHandler.SendTestEmail)
 		api.GET("/instance/unsplash/search", instanceSettingsHandler.UnsplashSearch)
 		// Instance-admin management (admin-gated inside the handler).
+		// Account provisioning (sign-up / OAuth / magic-code are disabled).
+		adminUserHandler := &handler.AdminUserHandler{Settings: instanceSettingsHandler, Auth: authSvc, Users: userStore, Ws: workspaceStore}
+		api.POST("/instance/users/", adminUserHandler.CreateUser)
+		api.POST("/instance/users/:id/reset-password/", adminUserHandler.ResetUserPassword)
+
 		api.GET("/instance/admins/", instanceSettingsHandler.ListAdmins)
 		api.POST("/instance/admins/", instanceSettingsHandler.AddAdmin)
 		api.DELETE("/instance/admins/:id/", instanceSettingsHandler.RemoveAdmin)
@@ -525,6 +541,25 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 		api.GET("/workspaces/:slug/notifications/", notificationHandler.List)
 		api.GET("/workspaces/:slug/notifications/unread-count/", notificationHandler.UnreadCount)
 		api.POST("/workspaces/:slug/notifications/mark-all-read/", notificationHandler.MarkAllRead)
+
+		// Backlog refinement planning poker (per work item).
+		pk := "/workspaces/:slug/projects/:projectId/issues/:pk/poker"
+		api.GET(pk+"/", pokerHandler.State)
+		api.POST(pk+"/start/", pokerHandler.Start)
+		api.PUT(pk+"/vote/", pokerHandler.Vote)
+		api.DELETE(pk+"/vote/", pokerHandler.Retract)
+		api.POST(pk+"/reveal/", pokerHandler.Reveal)
+		api.POST(pk+"/restart/", pokerHandler.Restart)
+		api.POST(pk+"/finalize/", pokerHandler.Finalize)
+
+		// Realtime inbox events (SSE).
+		api.GET("/events/", eventsHandler.Stream)
+
+		// Inbox chat (1:1 between workspace members).
+		api.GET("/workspaces/:slug/chat/conversations/", chatHandler.Conversations)
+		api.GET("/workspaces/:slug/chat/unread-count/", chatHandler.UnreadCount)
+		api.GET("/workspaces/:slug/chat/:userId/messages/", chatHandler.Messages)
+		api.POST("/workspaces/:slug/chat/:userId/messages/", chatHandler.Send)
 		api.POST("/workspaces/:slug/notifications/:id/read/", notificationHandler.MarkRead)
 		api.DELETE("/workspaces/:slug/notifications/:id/read/", notificationHandler.MarkUnread)
 		api.POST("/workspaces/:slug/notifications/:id/archive/", notificationHandler.Archive)
@@ -602,12 +637,10 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 		authGroup.GET("/config/", authHandler.InstanceAuthConfig)
 		authGroup.POST("/email-check/", middleware.RateLimit(cfg.Redis, "emailcheck", 30, 15*time.Minute), authHandler.EmailCheck)
 		authGroup.POST("/sign-in/", middleware.RateLimit(cfg.Redis, "signin", 20, 15*time.Minute), authHandler.SignIn)
-		authGroup.POST("/sign-up/", authHandler.SignUp)
+		// Disabled by design: accounts are provisioned by an instance admin
+		// (POST /api/instance/users/); no public sign-up, OAuth, magic-code or
+		// self-service password reset.
 		authGroup.POST("/sign-out/", authHandler.SignOut)
-		authGroup.POST("/forgot-password/", middleware.RateLimit(cfg.Redis, "forgotpw", 10, 15*time.Minute), authHandler.ForgotPassword)
-		authGroup.POST("/reset-password/", authHandler.ResetPassword)
-		authGroup.POST("/magic-code/request/", middleware.RateLimit(cfg.Redis, "magiccode", 10, 15*time.Minute), authHandler.MagicCodeRequest)
-		authGroup.POST("/magic-code/verify/", authHandler.MagicCodeVerify)
 		authGroup.POST("/set-password/", middleware.RequireAuth(authSvc, cfg.Log), authHandler.SetPassword)
 	}
 
@@ -621,8 +654,10 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 		APIPublicURL: cfg.APIPublicURL,
 		Log:          cfg.Log,
 	}
-	authGroup.GET("/:provider/", oauthHandler.Initiate)
-	authGroup.GET("/:provider/callback/", oauthHandler.Callback)
+	// OAuth sign-in (Google/GitHub/GitLab) is disabled: the /auth/:provider/
+	// routes are intentionally not registered. oauthHandler stays wired for the
+	// Slack / GitHub App flows below that share its types.
+	_ = oauthHandler
 
 	// GitHub App install flow (separate from OAuth user sign-in). Both
 	// require the user to be signed in so we can attach the installation to

@@ -5,12 +5,15 @@ import { Archive, ArchiveRestore } from 'lucide-react';
 import { Avatar, Button } from '../components/ui';
 import { workspaceService } from '../services/workspaceService';
 import { notificationService } from '../services/notificationService';
+import { chatService } from '../services/chatService';
+import { subscribeInbox } from '../lib/realtime';
+import { ChatList, ChatThread } from '../components/notifications/ChatPanel';
 import { NotificationContent } from '../components/notifications/NotificationContent';
 import { SnoozeMenu } from '../components/notifications/SnoozeMenu';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import type { WorkspaceApiResponse, NotificationApiResponse } from '../api/types';
 
-type InboxTab = 'all' | 'mentions' | 'archived';
+type InboxTab = 'all' | 'mentions' | 'archived' | 'chat';
 
 function formatTimeAgo(iso: string): string {
   const d = new Date(iso);
@@ -42,6 +45,7 @@ const TABS: { id: InboxTab; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'mentions', label: 'Mentions' },
   { id: 'archived', label: 'Archived' },
+  { id: 'chat', label: 'Chat' },
 ];
 
 export function NotificationsPage() {
@@ -50,6 +54,8 @@ export function NotificationsPage() {
   const navigate = useNavigate();
   const [inboxTab, setInboxTab] = useState<InboxTab>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [chatPeerId, setChatPeerId] = useState<string | null>(null);
+  const [chatUnread, setChatUnread] = useState(0);
   const [workspace, setWorkspace] = useState<WorkspaceApiResponse | null>(null);
   const [notifications, setNotifications] = useState<NotificationApiResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +64,48 @@ export function NotificationsPage() {
   const [explicitUnreadIds, setExplicitUnreadIds] = useState<Set<string>>(new Set());
 
   useDocumentTitle(t('notifications.documentTitle', 'Inbox'));
+
+  useEffect(() => {
+    if (!workspaceSlug) return;
+    let cancelled = false;
+    const load = () =>
+      chatService
+        .unreadCount(workspaceSlug)
+        .then((n) => {
+          if (!cancelled) setChatUnread(n);
+        })
+        .catch(() => {});
+    void load();
+    const id = window.setInterval(load, 60_000);
+    const unsubscribe = subscribeInbox(load);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      unsubscribe();
+    };
+  }, [workspaceSlug]);
+
+  // A new notification arrived (pushed by the server): refetch the list in place.
+  useEffect(() => {
+    if (!workspaceSlug) return;
+    let cancelled = false;
+    const unsubscribe = subscribeInbox((e) => {
+      if (e.type !== 'notification') return;
+      notificationService
+        .list(workspaceSlug, {
+          mentionsOnly: inboxTab === 'mentions',
+          archived: inboxTab === 'archived' ? 'archived' : 'inbox',
+        })
+        .then((list) => {
+          if (!cancelled) setNotifications(list ?? []);
+        })
+        .catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [workspaceSlug, inboxTab]);
 
   useEffect(() => {
     if (!workspaceSlug) {
@@ -232,7 +280,7 @@ export function NotificationsPage() {
     );
   }
 
-  const listWidth = 'min(420px, 35%)';
+  const listWidth = 'clamp(340px, 35%, 460px)';
 
   const emptyMessage =
     inboxTab === 'mentions'
@@ -257,8 +305,8 @@ export function NotificationsPage() {
         style={{ width: listWidth }}
       >
         <div className="shrink-0 border-b border-(--border-subtle) px-4">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-x-2">
+            <div className="flex min-w-0 gap-0.5">
               {TABS.map((tab) => (
                 <button
                   key={tab.id}
@@ -267,18 +315,28 @@ export function NotificationsPage() {
                     setInboxTab(tab.id);
                     setSelectedId(null);
                   }}
-                  className={`border-b-2 px-4 py-2.5 text-sm font-medium ${
+                  className={`border-b-2 whitespace-nowrap px-3 py-2.5 text-sm font-medium ${
                     inboxTab === tab.id
                       ? 'border-(--brand-default) text-(--txt-primary)'
                       : 'border-transparent text-(--txt-secondary) hover:text-(--txt-primary)'
                   }`}
                 >
                   {t(`notifications.tab.${tab.id}`, tab.label)}
+                  {tab.id === 'chat' && chatUnread > 0 ? (
+                    <span className="ml-1.5 rounded-full bg-(--brand-default) px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                      {chatUnread}
+                    </span>
+                  ) : null}
                 </button>
               ))}
             </div>
-            {inboxTab !== 'archived' ? (
-              <Button size="sm" variant="secondary" onClick={onMarkAllRead}>
+            {inboxTab !== 'archived' && inboxTab !== 'chat' ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="shrink-0 whitespace-nowrap"
+                onClick={onMarkAllRead}
+              >
                 {t('notifications.markAllRead', 'Mark all read')}
               </Button>
             ) : null}
@@ -286,7 +344,13 @@ export function NotificationsPage() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {notifications.length === 0 ? (
+          {inboxTab === 'chat' ? (
+            <ChatList
+              workspaceSlug={workspaceSlug!}
+              selectedPeerId={chatPeerId}
+              onSelect={setChatPeerId}
+            />
+          ) : notifications.length === 0 ? (
             <div className="p-6 text-sm text-(--txt-tertiary)">{emptyMessage}</div>
           ) : (
             <ul className="divide-y divide-(--border-subtle)">
@@ -299,7 +363,7 @@ export function NotificationsPage() {
                     <button
                       type="button"
                       onClick={() => setSelectedId(n.id)}
-                      className={`flex w-full gap-3 px-4 py-3 text-left transition-colors ${
+                      className={`flex w-full gap-3 py-3 pr-11 pl-4 text-left transition-colors ${
                         isSelected ? 'bg-(--bg-layer-1)' : 'hover:bg-(--bg-layer-1-hover)'
                       }`}
                     >
@@ -355,7 +419,15 @@ export function NotificationsPage() {
       </div>
 
       <div className="min-w-0 flex-1 bg-(--bg-canvas)">
-        {!selected ? (
+        {inboxTab === 'chat' ? (
+          chatPeerId ? (
+            <ChatThread key={chatPeerId} workspaceSlug={workspaceSlug!} peerId={chatPeerId} />
+          ) : (
+            <div className="flex h-full items-center justify-center p-8 text-sm text-(--txt-tertiary)">
+              {t('chat.selectPrompt', 'Select a person to start chatting.')}
+            </div>
+          )
+        ) : !selected ? (
           <div className="flex h-full items-center justify-center p-8 text-sm text-(--txt-tertiary)">
             {t('notifications.selectPrompt', 'Select a notification to see details.')}
           </div>

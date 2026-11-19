@@ -903,7 +903,8 @@ export type NotificationSender =
   | 'mentioned'
   | 'commented'
   | 'state_changed'
-  | 'subscribed';
+  | 'subscribed'
+  | 'poker';
 
 /** Structured payload the API attaches to every notification — denormalised so
  * the inbox can render N rows without N round-trips. Field set varies by sender. */

@@ -13,3 +13,4 @@ main.exe
 .playwright-mcp/
 .claude/
 graphify-out/
+deploy.env

@@ -387,26 +387,12 @@ export function LoginPage() {
               </button>
             </div>
 
-            {isPasswordEnabled && (
-              <div className="text-right">
-                {isSmtpConfigured ? (
-                  <Link
-                    to="/forgot-password"
-                    state={{ email }}
-                    className="text-xs text-(--txt-accent) hover:underline"
-                  >
-                    {t('auth.login.forgotPassword', 'Forgot your password?')}
-                  </Link>
-                ) : (
-                  <span className="text-xs text-(--txt-tertiary)">
-                    {t(
-                      'auth.login.resetSmtpHint',
-                      'To reset your password, ask your administrator to configure SMTP.',
-                    )}
-                  </span>
-                )}
-              </div>
-            )}
+            <p className="text-xs text-(--txt-tertiary)">
+              {t(
+                'auth.login.adminProvisioned',
+                'Accounts are created by your administrator. Contact them if you need access or a new password.',
+              )}
+            </p>
 
             {canUseMagicCode && isPasswordEnabled && (
               <button
@@ -425,7 +411,7 @@ export function LoginPage() {
                 : t('common.signIn', 'Sign in')}
             </Button>
 
-            {(allowSignup || !!inviteToken) && (
+            {allowSignup && (
               <p className="text-center text-sm text-(--txt-secondary)">
                 {t('auth.login.noAccount', "Don't have an account? ")}
                 <Link to="/sign-up" className="font-medium text-(--txt-accent) hover:underline">

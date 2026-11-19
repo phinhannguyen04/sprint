@@ -116,13 +116,6 @@ func (h *AuthHandler) SignIn(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request", "detail": err.Error()})
 		return
 	}
-	if h.Settings != nil {
-		row, _ := h.Settings.Get(c.Request.Context(), "auth")
-		if row != nil && !authBool(row.Value, "password", true) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "Password sign-in is disabled"})
-			return
-		}
-	}
 	ctx := c.Request.Context()
 	emailNorm := strings.ToLower(strings.TrimSpace(req.Email))
 	signinFailKey := redis.PrefixRateLimit + "signinacctfail:" + emailNorm
@@ -642,47 +635,18 @@ func (h *AuthHandler) RevokeToken(c *gin.Context) {
 // InstanceAuthConfig returns public auth configuration (no auth required).
 // GET /auth/config/
 func (h *AuthHandler) InstanceAuthConfig(c *gin.Context) {
-	isPasswordEnabled := true
-	isMagicCodeEnabled := true
-	enableSignup := true
-	isSmtpConfigured := false
+	// Admin-provisioned accounts only: email+password is the single login method.
 	ctx := c.Request.Context()
-	googleAllowed := false
-	githubAllowed := false
-	gitlabAllowed := false
-	if h.Settings != nil {
-		row, _ := h.Settings.Get(ctx, "auth")
-		if row != nil {
-			isPasswordEnabled = authBool(row.Value, "password", true)
-			isMagicCodeEnabled = authBool(row.Value, "magic_code", true)
-			enableSignup = authBool(row.Value, "allow_public_signup", true)
-			googleAllowed = authBool(row.Value, "google", false)
-			githubAllowed = authBool(row.Value, "github", false)
-			gitlabAllowed = authBool(row.Value, "gitlab", false)
-		}
-		emailRow, _ := h.Settings.Get(ctx, "email")
-		if emailRow != nil && emailRow.Value != nil {
-			host, _ := emailRow.Value["host"].(string)
-			isSmtpConfigured = strings.TrimSpace(host) != ""
-		}
-	}
-	isGoogleEnabled := googleAllowed && oauthGoogleCredentialsReady(ctx, h.Settings)
-	isGitHubEnabled := githubAllowed && oauthGitHubCredentialsReady(ctx, h.Settings)
-	isGitLabEnabled := gitlabAllowed && oauthGitLabCredentialsReady(ctx, h.Settings)
-
+	isSmtpConfigured := h.smtpConfigured(ctx)
 	out := gin.H{
-		"is_email_password_enabled":      isPasswordEnabled,
-		"is_magic_code_enabled":          isMagicCodeEnabled,
-		"enable_signup":                  enableSignup,
+		"is_email_password_enabled":      true,
+		"is_magic_code_enabled":          false,
+		"enable_signup":                  false,
 		"is_smtp_configured":             isSmtpConfigured,
-		"is_google_enabled":              isGoogleEnabled,
-		"is_github_enabled":              isGitHubEnabled,
-		"is_gitlab_enabled":              isGitLabEnabled,
+		"is_google_enabled":              false,
+		"is_github_enabled":              false,
+		"is_gitlab_enabled":              false,
 		"is_workspace_creation_disabled": isWorkspaceCreationRestricted(ctx, h.Settings),
-	}
-	out["oauth_redirect_base"] = oauthCallbackBase(c, h.APIPublicURL)
-	if js := h.oauthJSOriginForProviders(); js != "" {
-		out["oauth_js_origin"] = js
 	}
 	c.JSON(http.StatusOK, out)
 }

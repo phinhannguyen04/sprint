@@ -20,6 +20,7 @@ import { IssueLayoutSpreadsheet } from '../components/work-item/layouts/IssueLay
 import { IssueLayoutCalendar } from '../components/work-item/layouts/IssueLayoutCalendar';
 import { IssueLayoutGantt } from '../components/work-item/layouts/IssueLayoutGantt';
 import {
+  DEFAULT_ISSUE_LAYOUT,
   parseIssueLayout,
   type IssueLayout,
 } from '../components/work-item/layouts/IssueLayoutTypes';
@@ -340,7 +341,7 @@ export function CycleDetailPage() {
   const layout = parseIssueLayout(searchParams.get('layout'));
   const setLayout = (nextLayout: IssueLayout) => {
     const next = new URLSearchParams(searchParams);
-    if (nextLayout === 'list') next.delete('layout');
+    if (nextLayout === DEFAULT_ISSUE_LAYOUT) next.delete('layout');
     else next.set('layout', nextLayout);
     setSearchParams(next, { replace: true });
   };
