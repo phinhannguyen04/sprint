@@ -14,6 +14,15 @@ function memberName(m?: WorkspaceMemberApiResponse): string {
   return m?.member_display_name || m?.member_email || 'Unknown';
 }
 
+/** Lowercase + strip diacritics so "nguyen" finds "Nguyễn". */
+function norm(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .toLowerCase();
+}
+
 function useMembers(workspaceSlug: string) {
   const [members, setMembers] = useState<Map<string, WorkspaceMemberApiResponse>>(new Map());
   useEffect(() => {
@@ -66,47 +75,71 @@ export function ChatList({
     };
   }, [workspaceSlug]);
 
-  if (items.length === 0) {
-    return (
-      <div className="p-6 text-sm text-(--txt-tertiary)">
-        {t('chat.noMembers', 'No other members in this workspace yet.')}
-      </div>
-    );
-  }
+  const [query, setQuery] = useState('');
+  const q = norm(query.trim());
+  const visible = q
+    ? items.filter((c) => {
+        const m = members.get(c.peer_id);
+        return norm(`${memberName(m)} ${m?.member_email ?? ''}`).includes(q);
+      })
+    : items;
 
   return (
-    <ul className="divide-y divide-(--border-subtle)">
-      {items.map((c) => {
-        const name = memberName(members.get(c.peer_id));
-        const selected = selectedPeerId === c.peer_id;
-        return (
-          <li key={c.peer_id}>
-            <button
-              type="button"
-              onClick={() => onSelect(c.peer_id)}
-              className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-(--bg-layer-1-hover) ${
-                selected ? 'bg-(--bg-layer-1)' : ''
-              }`}
-            >
-              <Avatar name={name} src={members.get(c.peer_id)?.member_avatar} size="md" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-(--txt-primary)">
-                  {name}
-                </span>
-                <span className="block truncate text-xs text-(--txt-tertiary)">
-                  {c.last_message?.body ?? t('chat.startConversation', 'Start a conversation')}
-                </span>
-              </span>
-              {c.unread > 0 ? (
-                <span className="rounded-full bg-(--brand-default) px-1.5 py-0.5 text-[11px] font-semibold text-white">
-                  {c.unread}
-                </span>
-              ) : null}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <div>
+      <div className="sticky top-0 z-10 border-b border-(--border-subtle) bg-(--bg-canvas) p-3">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('chat.searchPeople', 'Search people…')}
+          aria-label={t('chat.searchPeople', 'Search people…')}
+          className="block w-full rounded border border-(--border-subtle) bg-(--bg-surface-1) px-2.5 py-1.5 text-sm text-(--txt-primary) focus:border-(--border-strong) focus:outline-none"
+        />
+      </div>
+      {visible.length === 0 ? (
+        <div className="p-6 text-sm text-(--txt-tertiary)">
+          {items.length === 0
+            ? t('chat.noMembers', 'No other members in this workspace yet.')
+            : t('chat.noResults', 'No one matches "{{query}}".', { query: query.trim() })}
+        </div>
+      ) : (
+        <ul className="divide-y divide-(--border-subtle)">
+          {visible.map((c) => {
+            const m = members.get(c.peer_id);
+            const name = memberName(m);
+            const selected = selectedPeerId === c.peer_id;
+            return (
+              <li key={c.peer_id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(c.peer_id)}
+                  className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-(--bg-layer-1-hover) ${
+                    selected ? 'bg-(--bg-layer-1)' : ''
+                  }`}
+                >
+                  <Avatar name={name} src={m?.member_avatar} size="md" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-(--txt-primary)">
+                      {name}
+                    </span>
+                    <span className="block truncate text-xs text-(--txt-tertiary)">
+                      {c.last_message?.body ??
+                        m?.member_email ??
+                        t('chat.startConversation', 'Start a conversation')}
+                    </span>
+                  </span>
+                  {c.unread > 0 ? (
+                    <span className="rounded-full bg-(--brand-default) px-1.5 py-0.5 text-[11px] font-semibold text-white">
+                      {c.unread}
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 

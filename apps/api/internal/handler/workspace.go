@@ -8,6 +8,7 @@ import (
 
 	"github.com/Devlaner/devlane/api/internal/middleware"
 	"github.com/Devlaner/devlane/api/internal/queue"
+	"github.com/Devlaner/devlane/api/internal/realtime"
 	"github.com/Devlaner/devlane/api/internal/service"
 	"github.com/Devlaner/devlane/api/internal/store"
 	"github.com/gin-gonic/gin"
@@ -20,6 +21,8 @@ type WorkspaceHandler struct {
 	Settings   *store.InstanceSettingStore
 	Queue      *queue.Publisher // optional: enqueue invite emails
 	AppBaseURL string           // optional: base URL for invite links (e.g. https://app.example.com)
+	Users      *store.UserStore // optional: resolve an invited email to an existing account
+	Hub        *realtime.Hub    // optional: realtime nudge so invitees see the invitation immediately
 }
 
 // List returns the current user's workspaces.
@@ -406,6 +409,14 @@ func (h *WorkspaceHandler) CreateInvite(c *gin.Context) {
 			InviteURL: inviteLink,
 			Extra:     map[string]string{"workspace_slug": slug, "invite_id": inv.ID.String()},
 		})
+	}
+
+	// Accounts are admin-provisioned, so invitees normally already exist: nudge
+	// their open inbox so the pending invitation shows up right away.
+	if h.Hub != nil && h.Users != nil {
+		if u, err := h.Users.GetByEmail(c.Request.Context(), strings.ToLower(strings.TrimSpace(inv.Email))); err == nil && u != nil {
+			h.Hub.Publish(u.ID, realtime.Event{Type: "notification", WorkspaceID: inv.WorkspaceID})
+		}
 	}
 
 	c.JSON(http.StatusCreated, inv)

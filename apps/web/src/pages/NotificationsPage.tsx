@@ -7,6 +7,7 @@ import { workspaceService } from '../services/workspaceService';
 import { notificationService } from '../services/notificationService';
 import { chatService } from '../services/chatService';
 import { subscribeInbox } from '../lib/realtime';
+import { InvitationsBanner } from '../components/notifications/InvitationsBanner';
 import { ChatList, ChatThread } from '../components/notifications/ChatPanel';
 import { NotificationContent } from '../components/notifications/NotificationContent';
 import { SnoozeMenu } from '../components/notifications/SnoozeMenu';
@@ -344,6 +345,7 @@ export function NotificationsPage() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
+          {inboxTab === 'all' ? <InvitationsBanner /> : null}
           {inboxTab === 'chat' ? (
             <ChatList
               workspaceSlug={workspaceSlug!}

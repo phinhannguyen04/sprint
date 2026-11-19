@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { notificationService } from '../services/notificationService';
 import { chatService } from '../services/chatService';
+import { invitationService } from '../services/invitationService';
 import { subscribeInbox } from '../lib/realtime';
 
 // Realtime events drive updates; this slow poll is only a safety net.
 const POLL_MS = 60_000;
 
 /**
- * Total unread inbox items (notifications + chat messages) for a workspace.
+ * Total unread inbox items (notifications + chat messages + pending invitations) for a workspace.
  * Polls while the tab is visible and refreshes immediately on refocus.
  */
 export function useInboxUnread(workspaceSlug: string | undefined): number {
@@ -22,9 +23,13 @@ export function useInboxUnread(workspaceSlug: string | undefined): number {
       Promise.all([
         notificationService.unreadCount(workspaceSlug).then((c) => c.total),
         chatService.unreadCount(workspaceSlug).catch(() => 0),
+        invitationService
+          .listMine()
+          .then((l) => l.length)
+          .catch(() => 0),
       ])
-        .then(([n, c]) => {
-          if (!cancelled) setCount(n + c);
+        .then(([n, c, inv]) => {
+          if (!cancelled) setCount(n + c + inv);
         })
         .catch(() => {});
     };
