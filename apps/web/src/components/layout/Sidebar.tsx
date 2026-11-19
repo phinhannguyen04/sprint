@@ -775,6 +775,38 @@ export function Sidebar() {
                     <IconCheck />
                   </span>
                 </div>
+                {workspaces.length > 1 && (
+                  <div className="mb-3 border-t border-(--border-subtle) pt-3">
+                    <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-(--txt-placeholder)">
+                      {t('nav.switchWorkspace', 'Switch workspace')}
+                    </p>
+                    <ul className="flex max-h-48 flex-col gap-0.5 overflow-y-auto">
+                      {workspaces.map((w) => {
+                        const current = w.slug === workspace?.slug;
+                        return (
+                          <li key={w.id}>
+                            <Link
+                              to={`/${w.slug}`}
+                              onClick={() => setWorkspaceDropdownOpen(false)}
+                              aria-current={current ? 'true' : undefined}
+                              className="flex w-full items-center gap-2 rounded-(--radius-md) px-2 py-1.5 text-[13px] font-medium text-(--txt-secondary) no-underline hover:bg-(--bg-layer-transparent-hover) hover:text-(--txt-primary)"
+                            >
+                              <span className="flex size-6 shrink-0 items-center justify-center rounded bg-(--bg-layer-2) text-[10px] font-semibold uppercase text-(--txt-secondary)">
+                                {w.name.slice(0, 2)}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate">{w.name}</span>
+                              {current ? (
+                                <span className="shrink-0 text-(--txt-primary)" aria-hidden>
+                                  <IconCheck />
+                                </span>
+                              ) : null}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
                 <div className="mb-3 flex gap-1.5">
                   <Link
                     to={baseUrl ? `${baseUrl}/settings` : '/settings'}

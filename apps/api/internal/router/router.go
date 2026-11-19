@@ -252,6 +252,8 @@ func New(cfg Config) (*gin.Engine, *service.ImporterService) {
 		Settings:   instanceSettingStore,
 		Queue:      cfg.Queue,
 		AppBaseURL: appBaseURL,
+		Users:      userStore,
+		Hub:        realtimeHub,
 	}
 
 	analyticsStore := store.NewAnalyticsStore(cfg.DB)

@@ -14,6 +14,7 @@ import { UploadImageModal } from '../components/UploadImageModal';
 import { ProjectIconModal, ProjectIconDisplay } from '../components/ProjectIconModal';
 import { getImageUrl } from '../lib/utils';
 import { useAuth } from '../contexts/AuthContext';
+import { getApiErrorMessage } from '../api/client';
 import { useTheme, type ThemePreference } from '../contexts/ThemeContext';
 import { workspaceService } from '../services/workspaceService';
 import { ProjectNetworkSelect } from '../components/ProjectNetworkSelect';
@@ -350,6 +351,10 @@ export function SettingsPage() {
   const [generalUpdateError, setGeneralUpdateError] = useState<string | null>(null);
   const [membersSearch, setMembersSearch] = useState('');
   const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [exportProjectOpen, setExportProjectOpen] = useState(false);
   const [exportProjectValue, setExportProjectValue] = useState('all');
   const [exportFormat, setExportFormat] = useState('csv');
@@ -571,7 +576,7 @@ export function SettingsPage() {
     }
     setInviting(true);
     try {
-      const roleNum = (r: { role: 'member' | 'admin' }) => (r.role === 'admin' ? 20 : 10);
+      const roleNum = (r: { role: 'member' | 'admin' }) => (r.role === 'admin' ? 15 : 10);
       if (inviteTarget === 'project' && selectedProjectId) {
         await Promise.all(
           rows.map((r) =>
@@ -792,7 +797,45 @@ export function SettingsPage() {
 
   const workspaceDisplayName = workspaceName || workspace.name;
   const workspaceUrl = `devlane.example.com/${workspace.slug}`;
-  const roleLabel = (role: number) => (role >= 20 ? 'admin' : 'member');
+  // Backend roles: Guest 5, Member 10, Admin 15, Owner 20. Owners show as Admin here.
+  const roleLabel = (role: number) => (role >= 15 ? 'admin' : 'member');
+  const isWorkspaceOwner = !!workspace && workspace.owner_id === user?.id;
+  const deleteWorkspace = async () => {
+    if (!workspaceSlug) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await workspaceService.delete(workspaceSlug);
+      // Full reload so every cached workspace list (sidebar, switcher) is refreshed.
+      window.location.assign('/');
+    } catch (err) {
+      setDeleteError(getApiErrorMessage(err));
+      setDeleteBusy(false);
+    }
+  };
+  const canManageMembers =
+    (workspaceMembers.find((m) => m.member_id === user?.id)?.role ?? 0) >= 15;
+  const removeWorkspaceMember = async (m: WorkspaceMemberApiResponse) => {
+    if (!workspaceSlug) return;
+    const who = m.member_display_name?.trim() || m.member_email || 'this member';
+    if (
+      !window.confirm(
+        t(
+          'settings.members.removeConfirm',
+          'Remove {{name}} from this workspace? They will lose access to its projects and work items.',
+          { name: who },
+        ),
+      )
+    )
+      return;
+    try {
+      await workspaceService.deleteMember(workspaceSlug, m.id);
+      const list = await workspaceService.listMembers(workspaceSlug);
+      setWorkspaceMembers(list ?? []);
+    } catch (err) {
+      window.alert(getApiErrorMessage(err));
+    }
+  };
   const memberLabel = (memberId: string | null | undefined) => {
     if (!memberId) return '—';
     const m = workspaceMembers.find((wm) => wm.member_id === memberId);
@@ -2453,7 +2496,7 @@ export function SettingsPage() {
                                 value={roleLabel(m.role)}
                                 onChange={async (e) => {
                                   const v = e.target.value as 'member' | 'admin';
-                                  const role = v === 'admin' ? 20 : 10;
+                                  const role = v === 'admin' ? 15 : 10;
                                   if (!workspaceSlug || !selectedProjectId || role === m.role)
                                     return;
                                   try {
@@ -3262,12 +3305,74 @@ export function SettingsPage() {
                         'This action cannot be undone. All projects and data in this workspace will be permanently removed.',
                       )}
                     </p>
-                    <Button variant="secondary" className="mt-3 text-(--txt-danger-primary)">
-                      {t('settings.workspace.delete.button', 'Delete workspace')}
-                    </Button>
+                    {isWorkspaceOwner ? (
+                      <Button
+                        variant="secondary"
+                        className="mt-3 text-(--txt-danger-primary)"
+                        onClick={() => {
+                          setDeleteConfirmText('');
+                          setDeleteError('');
+                          setDeleteConfirmOpen(true);
+                        }}
+                      >
+                        {t('settings.workspace.delete.button', 'Delete workspace')}
+                      </Button>
+                    ) : (
+                      <p className="mt-3 text-sm text-(--txt-tertiary)">
+                        {t(
+                          'settings.workspace.delete.ownerOnly',
+                          'Only the workspace owner can delete this workspace.',
+                        )}
+                      </p>
+                    )}
                   </CardContent>
                 )}
               </Card>
+              <Modal
+                open={deleteConfirmOpen}
+                onClose={() => (deleteBusy ? undefined : setDeleteConfirmOpen(false))}
+                title={t('settings.workspace.delete.confirmTitle', 'Delete workspace')}
+                footer={
+                  <>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setDeleteConfirmOpen(false)}
+                      disabled={deleteBusy}
+                    >
+                      {t('common.cancel', 'Cancel')}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      onClick={() => void deleteWorkspace()}
+                      disabled={deleteBusy || deleteConfirmText.trim() !== (workspace?.name ?? '')}
+                    >
+                      {deleteBusy
+                        ? t('common.deleting', 'Deleting…')
+                        : t('settings.workspace.delete.confirmButton', 'Delete permanently')}
+                    </Button>
+                  </>
+                }
+              >
+                <div className="space-y-3">
+                  <p className="text-sm text-(--txt-secondary)">
+                    {t(
+                      'settings.workspace.delete.confirmBody',
+                      'This permanently deletes all projects, work items and data in this workspace. Type the workspace name to confirm:',
+                    )}
+                  </p>
+                  <p className="text-sm font-semibold text-(--txt-primary)">{workspace?.name}</p>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    aria-label={t('settings.workspace.delete.confirmInput', 'Workspace name')}
+                    className="block w-full rounded border border-(--border-subtle) bg-(--bg-surface-1) px-2.5 py-1.5 text-sm text-(--txt-primary) focus:border-(--border-strong) focus:outline-none"
+                  />
+                  {deleteError ? (
+                    <p className="text-sm text-(--txt-danger-primary)">{deleteError}</p>
+                  ) : null}
+                </div>
+              </Modal>
               {workspaceSlug && (
                 <UploadImageModal
                   open={workspaceLogoModalOpen}
@@ -3340,12 +3445,10 @@ export function SettingsPage() {
                         <th className="py-3 pr-4 font-medium text-(--txt-secondary)">
                           {t('settings.members.accountType', 'Account type')}
                         </th>
-                        <th className="py-3 pr-4 font-medium text-(--txt-secondary)">
-                          {t('settings.members.authentication', 'Authentication')}
-                        </th>
                         <th className="py-3 font-medium text-(--txt-secondary)">
                           {t('settings.members.joiningDate', 'Joining date')}
                         </th>
+                        {canManageMembers && <th className="py-3 pl-4" />}
                       </tr>
                     </thead>
                     <tbody>
@@ -3371,7 +3474,7 @@ export function SettingsPage() {
                                 value={roleLabel(m.role)}
                                 onChange={async (e) => {
                                   const v = e.target.value as 'member' | 'admin';
-                                  const role = v === 'admin' ? 20 : 10;
+                                  const role = v === 'admin' ? 15 : 10;
                                   if (!workspaceSlug || role === m.role) return;
                                   try {
                                     await workspaceService.updateMember(workspaceSlug, m.id, role);
@@ -3393,9 +3496,6 @@ export function SettingsPage() {
                               </span>
                             </div>
                           </td>
-                          <td className="py-3 pr-4 text-(--txt-secondary)">
-                            {t('settings.members.authEmail', 'Email')}
-                          </td>
                           <td className="py-3 text-(--txt-secondary)">
                             {m.created_at
                               ? new Date(m.created_at).toLocaleDateString('en-US', {
@@ -3405,6 +3505,19 @@ export function SettingsPage() {
                                 })
                               : '—'}
                           </td>
+                          {canManageMembers && (
+                            <td className="py-3 pl-4 text-right">
+                              {m.member_id !== workspace?.owner_id && m.member_id !== user?.id ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void removeWorkspaceMember(m)}
+                                  className="rounded px-2 py-1 text-xs font-medium text-(--txt-danger-primary) hover:bg-(--bg-danger-subtle)"
+                                >
+                                  {t('settings.members.remove', 'Remove')}
+                                </button>
+                              ) : null}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>
