@@ -66,6 +66,14 @@ export const workspaceService = {
   },
 
   /**
+   * Permanently delete a workspace (owner only).
+   * DELETE /api/workspaces/:slug/
+   */
+  async delete(workspaceSlug: string): Promise<void> {
+    await apiClient.delete(`/api/workspaces/${encodeURIComponent(workspaceSlug)}/`);
+  },
+
+  /**
    * Update workspace name or slug.
    * PATCH /api/workspaces/:slug/
    */

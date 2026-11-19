@@ -351,6 +351,10 @@ export function SettingsPage() {
   const [generalUpdateError, setGeneralUpdateError] = useState<string | null>(null);
   const [membersSearch, setMembersSearch] = useState('');
   const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [exportProjectOpen, setExportProjectOpen] = useState(false);
   const [exportProjectValue, setExportProjectValue] = useState('all');
   const [exportFormat, setExportFormat] = useState('csv');
@@ -795,6 +799,20 @@ export function SettingsPage() {
   const workspaceUrl = `devlane.example.com/${workspace.slug}`;
   // Backend roles: Guest 5, Member 10, Admin 15, Owner 20. Owners show as Admin here.
   const roleLabel = (role: number) => (role >= 15 ? 'admin' : 'member');
+  const isWorkspaceOwner = !!workspace && workspace.owner_id === user?.id;
+  const deleteWorkspace = async () => {
+    if (!workspaceSlug) return;
+    setDeleteBusy(true);
+    setDeleteError('');
+    try {
+      await workspaceService.delete(workspaceSlug);
+      // Full reload so every cached workspace list (sidebar, switcher) is refreshed.
+      window.location.assign('/');
+    } catch (err) {
+      setDeleteError(getApiErrorMessage(err));
+      setDeleteBusy(false);
+    }
+  };
   const canManageMembers =
     (workspaceMembers.find((m) => m.member_id === user?.id)?.role ?? 0) >= 15;
   const removeWorkspaceMember = async (m: WorkspaceMemberApiResponse) => {
@@ -3287,12 +3305,74 @@ export function SettingsPage() {
                         'This action cannot be undone. All projects and data in this workspace will be permanently removed.',
                       )}
                     </p>
-                    <Button variant="secondary" className="mt-3 text-(--txt-danger-primary)">
-                      {t('settings.workspace.delete.button', 'Delete workspace')}
-                    </Button>
+                    {isWorkspaceOwner ? (
+                      <Button
+                        variant="secondary"
+                        className="mt-3 text-(--txt-danger-primary)"
+                        onClick={() => {
+                          setDeleteConfirmText('');
+                          setDeleteError('');
+                          setDeleteConfirmOpen(true);
+                        }}
+                      >
+                        {t('settings.workspace.delete.button', 'Delete workspace')}
+                      </Button>
+                    ) : (
+                      <p className="mt-3 text-sm text-(--txt-tertiary)">
+                        {t(
+                          'settings.workspace.delete.ownerOnly',
+                          'Only the workspace owner can delete this workspace.',
+                        )}
+                      </p>
+                    )}
                   </CardContent>
                 )}
               </Card>
+              <Modal
+                open={deleteConfirmOpen}
+                onClose={() => (deleteBusy ? undefined : setDeleteConfirmOpen(false))}
+                title={t('settings.workspace.delete.confirmTitle', 'Delete workspace')}
+                footer={
+                  <>
+                    <Button
+                      variant="secondary"
+                      onClick={() => setDeleteConfirmOpen(false)}
+                      disabled={deleteBusy}
+                    >
+                      {t('common.cancel', 'Cancel')}
+                    </Button>
+                    <Button
+                      variant="danger"
+                      onClick={() => void deleteWorkspace()}
+                      disabled={deleteBusy || deleteConfirmText.trim() !== (workspace?.name ?? '')}
+                    >
+                      {deleteBusy
+                        ? t('common.deleting', 'Deleting…')
+                        : t('settings.workspace.delete.confirmButton', 'Delete permanently')}
+                    </Button>
+                  </>
+                }
+              >
+                <div className="space-y-3">
+                  <p className="text-sm text-(--txt-secondary)">
+                    {t(
+                      'settings.workspace.delete.confirmBody',
+                      'This permanently deletes all projects, work items and data in this workspace. Type the workspace name to confirm:',
+                    )}
+                  </p>
+                  <p className="text-sm font-semibold text-(--txt-primary)">{workspace?.name}</p>
+                  <input
+                    type="text"
+                    value={deleteConfirmText}
+                    onChange={(e) => setDeleteConfirmText(e.target.value)}
+                    aria-label={t('settings.workspace.delete.confirmInput', 'Workspace name')}
+                    className="block w-full rounded border border-(--border-subtle) bg-(--bg-surface-1) px-2.5 py-1.5 text-sm text-(--txt-primary) focus:border-(--border-strong) focus:outline-none"
+                  />
+                  {deleteError ? (
+                    <p className="text-sm text-(--txt-danger-primary)">{deleteError}</p>
+                  ) : null}
+                </div>
+              </Modal>
               {workspaceSlug && (
                 <UploadImageModal
                   open={workspaceLogoModalOpen}
