@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/Devlaner/devlane/api/internal/auth"
 	"github.com/Devlaner/devlane/api/internal/middleware"
 	"github.com/Devlaner/devlane/api/internal/model"
 	"github.com/Devlaner/devlane/api/internal/store"
@@ -21,9 +22,9 @@ func TestAuth_Config_Defaults(t *testing.T) {
 
 	body := testutil.MustJSONMap(t, rr)
 	assert.Equal(t, true, body["is_email_password_enabled"])
-	assert.Equal(t, true, body["is_magic_code_enabled"])
-	assert.Equal(t, true, body["enable_signup"])
-	// No OAuth provider has credentials in this fresh instance.
+	// Accounts are admin-provisioned: no magic code, public sign-up or social login.
+	assert.Equal(t, false, body["is_magic_code_enabled"])
+	assert.Equal(t, false, body["enable_signup"])
 	assert.Equal(t, false, body["is_google_enabled"])
 	assert.Equal(t, false, body["is_github_enabled"])
 	assert.Equal(t, false, body["is_gitlab_enabled"])
@@ -46,52 +47,6 @@ func TestAuth_EmailCheck_Unknown(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := testutil.MustJSONMap(t, rr)
 	assert.Equal(t, false, body["existing"])
-}
-
-func TestAuth_SignUp_Success(t *testing.T) {
-	ts := testutil.NewTestServer(t)
-
-	rr := ts.POST("/auth/sign-up/", map[string]any{
-		"email":      "newuser@test.local",
-		"password":   "S3cur3!Pass",
-		"first_name": "New",
-		"last_name":  "User",
-	}, "")
-	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
-
-	user := testutil.MustJSONMap(t, rr)
-	assert.Equal(t, "newuser@test.local", user["email"])
-
-	// Cookie should be set.
-	require.NotEmpty(t, rr.Result().Cookies(), "expected session cookie")
-	var found bool
-	for _, c := range rr.Result().Cookies() {
-		if c.Name == middleware.SessionCookieName && c.Value != "" {
-			found = true
-		}
-	}
-	assert.True(t, found, "session cookie missing")
-}
-
-func TestAuth_SignUp_DuplicateEmail(t *testing.T) {
-	ts := testutil.NewTestServer(t)
-	testutil.CreateUser(t, ts.DB, testutil.WithUserEmail("dup@test.local"))
-
-	rr := ts.POST("/auth/sign-up/", map[string]any{
-		"email":    "dup@test.local",
-		"password": "S3cur3!Pass",
-	}, "")
-	require.Equal(t, http.StatusConflict, rr.Code)
-}
-
-func TestAuth_SignUp_WeakPassword(t *testing.T) {
-	ts := testutil.NewTestServer(t)
-
-	rr := ts.POST("/auth/sign-up/", map[string]any{
-		"email":    "weak@test.local",
-		"password": "weakpass",
-	}, "")
-	require.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
 func TestAuth_SignIn_Success(t *testing.T) {
@@ -412,41 +367,6 @@ func TestAuth_ApiToken_DeactivatedUserRejected(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, rr2.Code, "body=%s", rr2.Body.String())
 }
 
-func TestAuth_ForgotPassword_NoSMTPReturns503(t *testing.T) {
-	ts := testutil.NewTestServer(t)
-	testutil.CreateUser(t, ts.DB, testutil.WithUserEmail("forgot@test.local"))
-
-	rr := ts.POST("/auth/forgot-password/", map[string]string{"email": "forgot@test.local"}, "")
-	require.Equal(t, http.StatusServiceUnavailable, rr.Code, "body=%s", rr.Body.String())
-}
-
-func TestAuth_ResetPassword_BadToken(t *testing.T) {
-	ts := testutil.NewTestServer(t)
-
-	rr := ts.POST("/auth/reset-password/", map[string]any{
-		"token":        "not-a-real-token",
-		"new_password": "Br4nd!NewPass",
-	}, "")
-	require.Equal(t, http.StatusBadRequest, rr.Code)
-}
-
-func TestAuth_MagicCodeRequest_NoSMTPReturns503(t *testing.T) {
-	ts := testutil.NewTestServer(t)
-
-	rr := ts.POST("/auth/magic-code/request/", map[string]string{"email": "code@test.local"}, "")
-	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
-}
-
-func TestAuth_MagicCodeVerify_NoRedis(t *testing.T) {
-	ts := testutil.NewTestServer(t)
-
-	rr := ts.POST("/auth/magic-code/verify/", map[string]any{
-		"email": "code@test.local",
-		"code":  "123456",
-	}, "")
-	require.Equal(t, http.StatusServiceUnavailable, rr.Code)
-}
-
 func TestAuth_SetPassword_RequiresAuth(t *testing.T) {
 	ts := testutil.NewTestServer(t)
 
@@ -529,4 +449,92 @@ func TestAuth_UserActivity_IncludesIssueActivity(t *testing.T) {
 	assert.Contains(t, types, "issue_activity")
 	assert.Contains(t, rr.Body.String(), comment.Comment)
 	assert.Contains(t, rr.Body.String(), "Updated priority from none to high")
+}
+
+// Sign-up, magic code, password reset and social login are disabled: the
+// routes are not registered, so they must 404 rather than reach a handler.
+func TestAuth_RemovedRoutes_Return404(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+
+	for _, path := range []string{
+		"/auth/sign-up/",
+		"/auth/forgot-password/",
+		"/auth/reset-password/",
+		"/auth/magic-code/request/",
+		"/auth/magic-code/verify/",
+	} {
+		rr := ts.POST(path, map[string]any{"email": "x@test.local"}, "")
+		assert.Equal(t, http.StatusNotFound, rr.Code, "POST %s", path)
+	}
+	for _, path := range []string{"/auth/google/", "/auth/github/", "/auth/gitlab/", "/auth/google/callback/"} {
+		rr := ts.GET(path, "")
+		assert.Equal(t, http.StatusNotFound, rr.Code, "GET %s", path)
+	}
+}
+
+// An instance admin can create an account; the returned one-time password signs in.
+func TestAdminUsers_CreateAndSignIn(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	admin := testutil.CreateUser(t, ts.DB)
+	testutil.SeedInstanceAdmin(t, ts.DB, admin)
+	ws := testutil.CreateWorkspace(t, ts.DB, admin.ID)
+	session := testutil.LoginAs(t, ts.DB, admin)
+
+	rr := ts.POST("/api/instance/users/", map[string]any{
+		"email":          "new.member@test.local",
+		"first_name":     "New",
+		"workspace_slug": ws.Slug,
+	}, session)
+	require.Equal(t, http.StatusCreated, rr.Code, "body=%s", rr.Body.String())
+	body := testutil.MustJSONMap(t, rr)
+	password, _ := body["password"].(string)
+	require.NoError(t, auth.ValidatePasswordStrength(password), "generated password must be strong")
+
+	// The new user is a workspace member.
+	user, err := store.NewUserStore(ts.DB).GetByEmail(context.Background(), "new.member@test.local")
+	require.NoError(t, err)
+	ok, err := store.NewWorkspaceStore(ts.DB).IsMember(context.Background(), ws.ID, user.ID)
+	require.NoError(t, err)
+	assert.True(t, ok, "user should be added to the workspace")
+
+	// And can sign in with the generated password.
+	in := ts.POST("/auth/sign-in/", map[string]any{"email": "new.member@test.local", "password": password}, "")
+	require.Equal(t, http.StatusOK, in.Code, "body=%s", in.Body.String())
+
+	// Duplicate email is rejected.
+	dup := ts.POST("/api/instance/users/", map[string]any{"email": "new.member@test.local"}, session)
+	assert.Equal(t, http.StatusConflict, dup.Code)
+}
+
+func TestAdminUsers_NonAdminForbidden(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	admin := testutil.CreateUser(t, ts.DB)
+	testutil.SeedInstanceAdmin(t, ts.DB, admin)
+	other := testutil.CreateUser(t, ts.DB)
+	session := testutil.LoginAs(t, ts.DB, other)
+
+	rr := ts.POST("/api/instance/users/", map[string]any{"email": "x@test.local"}, session)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	rr = ts.POST("/api/instance/users/"+other.ID.String()+"/reset-password/", nil, session)
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+}
+
+func TestAdminUsers_ResetPasswordRevokesSessions(t *testing.T) {
+	ts := testutil.NewTestServer(t)
+	admin := testutil.CreateUser(t, ts.DB)
+	testutil.SeedInstanceAdmin(t, ts.DB, admin)
+	adminSession := testutil.LoginAs(t, ts.DB, admin)
+	target := testutil.CreateUser(t, ts.DB)
+	targetSession := testutil.LoginAs(t, ts.DB, target)
+
+	rr := ts.POST("/api/instance/users/"+target.ID.String()+"/reset-password/", nil, adminSession)
+	require.Equal(t, http.StatusOK, rr.Code, "body=%s", rr.Body.String())
+	password, _ := testutil.MustJSONMap(t, rr)["password"].(string)
+	require.NotEmpty(t, password)
+
+	// Old session is gone; the new password works.
+	assert.Equal(t, http.StatusUnauthorized, ts.GET("/api/users/me/", targetSession).Code)
+	email := *target.Email
+	in := ts.POST("/auth/sign-in/", map[string]any{"email": email, "password": password}, "")
+	assert.Equal(t, http.StatusOK, in.Code, "body=%s", in.Body.String())
 }
